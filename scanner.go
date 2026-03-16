@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -12,24 +13,28 @@ import (
 )
 
 type Scanner struct {
-	cache  *GeoCache
-	client *http.Client
-	device string
+	cache        *GeoCache
+	client       *http.Client
+	device       string
+	packageGraph *Graph
 }
 
 func NewScanner(device string) *Scanner {
 	// intantiate cache and http client
 	cache := NewGeoCache()
 	client := &http.Client{Timeout: 3 * time.Second}
+	// package graph
+	packageGraph := NewGraph()
 
 	return &Scanner{
-		cache:  cache,
-		client: client,
-		device: device,
+		cache:        cache,
+		client:       client,
+		device:       device,
+		packageGraph: packageGraph,
 	}
 }
 
-func (s *Scanner) Scan(print bool) {
+func (s *Scanner) Scan(durationMS int, print bool) {
 	// loop to capture packages on en0
 	handle, err := pcap.OpenLive(s.device, 1600, true, pcap.BlockForever)
 	if err != nil {
@@ -38,25 +43,45 @@ func (s *Scanner) Scan(print bool) {
 
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
-	for packet := range packetSource.Packets() {
-		ip := packet.Layer(layers.LayerTypeIPv4)
-		if ip == nil {
-			continue
-		}
+	timeout := time.After(time.Duration(durationMS) * time.Millisecond)
 
-		ip4, _ := ip.(*layers.IPv4)
+	// each iteration, check for timeout, else process packet
+	for {
+		select {
+		case <-timeout:
+			return
+		case packet := <-packetSource.Packets():
+			ip := packet.Layer(layers.LayerTypeIPv4)
+			if ip == nil {
+				continue
+			}
 
-		// cache lookup
-		srcInfo := s.lookup(ip4.SrcIP.String())
-		dstInfo := s.lookup(ip4.DstIP.String())
+			ip4, _ := ip.(*layers.IPv4)
+			srcIP := ip4.SrcIP.String()
+			destIP := ip4.DstIP.String()
 
-		if print {
-			printPacket(ip4, srcInfo, dstInfo)
+			// cache lookup
+			srcInfo := s.lookup(srcIP)
+			dstInfo := s.lookup(destIP)
+
+			if print {
+				printPacket(ip4, srcInfo, dstInfo)
+			}
+
+			// add new edge (and if needed nodes) to the graph
+			srcNode := Node{srcIP, srcInfo.Country, srcInfo.City, srcInfo.Org}
+			dstNode := Node{destIP, dstInfo.Country, dstInfo.City, dstInfo.Org}
+			s.packageGraph.Add(srcNode, dstNode)
 		}
 	}
 }
 
 func (s *Scanner) lookup(ip string) *GeoInfo {
+	// private not cached
+	if isPrivate(ip) {
+		return &GeoInfo{IP: ip, Country: "local", City: "local network", Org: "LAN"}
+	}
+
 	// check if ip exists in cache, else fetch from api
 	if info, ok := s.cache.Get(ip); ok {
 		return info // cache hit
@@ -67,8 +92,26 @@ func (s *Scanner) lookup(ip string) *GeoInfo {
 	return info
 }
 
-func isPrivate(ip string) {
+func isPrivate(ipStr string) bool {
 	// check if ip adress is private
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return true
+	}
+	private := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"127.0.0.0/8",
+		"169.254.0.0/16",
+	}
+	for _, cidr := range private {
+		_, block, _ := net.ParseCIDR(cidr)
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func fetchFromAPI(ip string, client *http.Client) *GeoInfo {
