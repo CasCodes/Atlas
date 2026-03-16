@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>netscope</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0f0f0f;
+      color: #ccc;
+      font-family: monospace;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #controls {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    input[type="number"] {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #ccc;
+      padding: 6px 10px;
+      font-family: monospace;
+      font-size: 13px;
+      width: 100px;
+      border-radius: 4px;
+    }
+
+    button {
+      background: #1a1a1a;
+      border: 1px solid #444;
+      color: #ccc;
+      padding: 6px 14px;
+      font-family: monospace;
+      font-size: 13px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: #888; color: #fff; }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    #status {
+      font-size: 12px;
+      color: #555;
+    }
+
+    #graph { width: 100vw; height: 100vh; }
+
+    .tooltip {
+      position: absolute;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      padding: 10px 14px;
+      font-size: 12px;
+      line-height: 1.8;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      color: #ccc;
+    }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  <input type="number" id="duration" value="5000" min="1000" step="1000" />
+  <button id="scanBtn" onclick="startScan()">scan</button>
+  <span id="status"></span>
+</div>
+
+<svg id="graph"></svg>
+<div class="tooltip" id="tooltip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+  const svg = d3.select("#graph")
+  const width = window.innerWidth
+  const height = window.innerHeight
+  const tooltip = document.getElementById("tooltip")
+
+  svg.attr("viewBox", [0, 0, width, height])
+
+  // one color per country, grey for local
+  const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
+  function nodeColor(d) {
+    if (d.country === "local") return "#444"
+    return colorScale(d.country)
+  }
+
+  async function startScan() {
+    const btn = document.getElementById("scanBtn")
+    const status = document.getElementById("status")
+    const duration = document.getElementById("duration").value
+
+    btn.disabled = true
+    status.textContent = `scanning for ${duration / 1000}s...`
+
+    await fetch(`/scan?duration=${duration}`, { method: "POST" })
+
+    status.textContent = "fetching graph..."
+    const res = await fetch("/graph")
+    const data = await res.json()
+
+    status.textContent = `${data.nodes.length} nodes, ${data.edges.length} edges`
+    btn.disabled = false
+
+    renderGraph(data)
+  }
+
+  function renderGraph(data) {
+    svg.selectAll("*").remove()
+    d3.select("#legend").remove()
+
+    const maxCount = d3.max(data.edges, e => e.count) || 1
+
+    // arrows
+    svg.append("defs").append("marker")
+      .attr("id", "arrow")
+      .attr("viewBox", "0 0 10 10")
+      .attr("refX", 18).attr("refY", 5)
+      .attr("markerWidth", 6).attr("markerHeight", 6)
+      .attr("orient", "auto-start-reverse")
+      .append("path")
+      .attr("d", "M2 1L8 5L2 9")
+      .attr("fill", "none")
+      .attr("stroke", "#555")
+      .attr("stroke-width", 1.5)
+
+    // remap from/to to source/target which is what D3 expects
+    data.edges.forEach(e => { e.source = e.from; e.target = e.to })
+
+    const simulation = d3.forceSimulation(data.nodes)
+      .force("link", d3.forceLink(data.edges)
+        .id(d => d.ip)
+        .distance(120))
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collision", d3.forceCollide(30))
+
+    const link = svg.append("g").selectAll("line")
+      .data(data.edges).enter().append("line")
+      .attr("stroke", "#333")
+      .attr("stroke-width", d => 1 + (d.count / maxCount) * 6)
+      .attr("marker-end", "url(#arrow)")
+
+    const node = svg.append("g").selectAll("circle")
+      .data(data.nodes).enter().append("circle")
+      .attr("r", 8)
+      .attr("fill", nodeColor)
+      .attr("stroke", d => d.country === "local" ? "#666" : "#fff")
+      .attr("stroke-width", 0.5)
+      .style("cursor", "pointer")
+      .on("mouseover", (event, d) => {
+        tooltip.style.opacity = 1
+        tooltip.innerHTML = [
+          `<b>${d.ip}</b>`,
+          d.city !== "local network" ? `${d.city}, ${d.country}` : "local network",
+          d.org || ""
+        ].filter(Boolean).join("<br>")
+      })
+      .on("mousemove", event => {
+        tooltip.style.left = (event.pageX + 14) + "px"
+        tooltip.style.top  = (event.pageY - 10) + "px"
+      })
+      .on("mouseout", () => { tooltip.style.opacity = 0 })
+      .call(d3.drag()
+        .on("start", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart()
+          d.fx = d.x; d.fy = d.y
+        })
+        .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y })
+        .on("end", (event, d) => {
+          if (!event.active) simulation.alphaTarget(0)
+          d.fx = null; d.fy = null
+        }))
+
+    // build legend
+    const countries = [...new Set(data.nodes.map(d => d.country))]
+    const legend = d3.select("body").append("div")
+      .attr("id", "legend")
+      .style("position", "absolute")
+      .style("top", "24px")
+      .style("right", "24px")
+      .style("background", "#1a1a1a")
+      .style("border", "1px solid #333")
+      .style("border-radius", "4px")
+      .style("padding", "12px 16px")
+      .style("font-size", "12px")
+      .style("line-height", "2")
+      .style("font-family", "monospace")
+
+    countries.forEach(country => {
+      const row = legend.append("div").style("display", "flex").style("align-items", "center").style("gap", "8px")
+      row.append("div")
+        .style("width", "10px").style("height", "10px")
+        .style("border-radius", "50%")
+        .style("background", country === "local" ? "#444" : colorScale(country))
+        .style("border", "1px solid #666").style("flex-shrink", "0")
+      row.append("span").style("color", "#999").text(country)
+    })
+
+    const label = svg.append("g").selectAll("text")
+      .data(data.nodes).enter().append("text")
+      .text(d => d.ip)
+      .attr("font-size", 10)
+      .attr("font-family", "monospace")
+      .attr("fill", "#666")
+      .attr("dx", 12)
+      .attr("dy", 4)
+      .style("pointer-events", "none")
+
+    simulation.on("tick", () => {
+      link
+        .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x).attr("y2", d => d.target.y)
+      node
+        .attr("cx", d => d.x).attr("cy", d => d.y)
+      label
+        .attr("x", d => d.x).attr("y", d => d.y)
+    })
+  }
+</script>
+</body>
+</html>

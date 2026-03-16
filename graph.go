@@ -3,16 +3,16 @@ package main
 import "fmt"
 
 type Node struct {
-	IP      string
-	Country string
-	City    string
-	Org     string
+	IP      string `json:"ip"`
+	Country string `json:"country"`
+	City    string `json:"city"`
+	Org     string `json:"org"`
 }
 
 type Edge struct {
-	FromIP string // IP
-	ToIP   string // IP
-	Count  int
+	FromIP string `json:"from"`
+	ToIP   string `json:"to"`
+	Count  int    `json:"count"`
 }
 
 type EdgeKey struct {

@@ -34,6 +34,10 @@ func main() {
 		})
 	})
 
+	// browser interface
+	r.Static("/static", "./static")
+	r.StaticFile("/", "./static/index.html")
+
 	// run the server
-	r.Run()
+	r.Run(":8080")
 }

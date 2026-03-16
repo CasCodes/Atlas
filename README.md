@@ -26,9 +26,9 @@ curl "http://localhost:8080/graph"
 
 ## To do
 Todo:
-- specify scan duration with arg
-- build a graph over the captures destinations, make make edges larger based on number of requests. 
+- Run traceroute whenever a new IP is registered, add the intermediate adresses to the graph
 
 
 Backlog:
 - MCP server over graph
+- make the graph live, i.e. stream graph data (with start/stop scan)
