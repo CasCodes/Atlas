@@ -1,6 +1,10 @@
 # GoScan
+A small package capturing app written in go. The captured packages are visualized as a graph, where nodes are IP adresses and edges are stronger the more packages were send between the nodes.
 
+## Usage
 Run the api server with `sudo go run .`
+
+Visit the web interface at `http://localhost:8080/`
 
 ## Endpoints:
 
