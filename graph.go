@@ -25,6 +25,11 @@ type Graph struct {
 	Edges map[EdgeKey]*Edge // keyed by EdgeKey
 }
 
+type GraphJSON struct {
+	Nodes []Node `json:"nodes"`
+	Edges []Edge `json:"edges"`
+}
+
 func NewGraph() *Graph {
 	// allocate maps and return empty graph
 	return &Graph{
@@ -54,5 +59,22 @@ func (g *Graph) Add(from Node, to Node) {
 func (g *Graph) Print() {
 	for n := range g.Edges {
 		fmt.Printf(" (%s) -- %d --> (%s) \n", n.FromIP, g.Edges[n].Count, n.ToIP)
+	}
+}
+
+func (g *Graph) ToJSON() GraphJSON {
+	nodes := make([]Node, 0, len(g.Nodes))
+	edges := make([]Edge, 0, len(g.Edges))
+
+	for _, node := range g.Nodes {
+		nodes = append(nodes, *node)
+	}
+
+	for _, edge := range g.Edges {
+		edges = append(edges, *edge)
+	}
+	return GraphJSON{
+		Nodes: nodes,
+		Edges: edges,
 	}
 }
