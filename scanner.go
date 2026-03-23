@@ -76,7 +76,7 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			dstInfo := s.lookup(destIP)
 
 			// start trace in new thread
-			if !s.tracedSet[destIP] {
+			if !isPrivate(destIP) && !s.tracedSet[destIP] {
 				s.tracedSet[destIP] = true
 				go s.tracer.Trace(ctx, destIP)
 			}
@@ -86,9 +86,9 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			}
 
 			// add new edge (and if needed nodes) to the graph
-			srcNode := Node{srcIP, srcInfo.Country, srcInfo.City, srcInfo.Org}
-			dstNode := Node{destIP, dstInfo.Country, dstInfo.City, dstInfo.Org}
-			s.graph.Add(srcNode, dstNode)
+			// srcNode := Node{srcIP, srcInfo.Country, srcInfo.City, srcInfo.Org}
+			// dstNode := Node{destIP, dstInfo.Country, dstInfo.City, dstInfo.Org}
+			// s.graph.Add(srcNode, dstNode)
 		}
 	}
 }
