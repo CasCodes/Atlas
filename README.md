@@ -1,6 +1,7 @@
-# GoScan
+# Atlas
 A small package capturing utility written in go. The captured packages are visualized as a graph, where nodes are IP adresses and edges are stronger the more packages were send between the nodes.
 
+What it does:
 ```
 Capture packages -> run traceroute on all discovered IPs -> plot the routes as a graph
 ```

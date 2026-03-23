@@ -84,11 +84,6 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			if print {
 				printPacket(ip4, srcInfo, dstInfo)
 			}
-
-			// add new edge (and if needed nodes) to the graph
-			// srcNode := Node{srcIP, srcInfo.Country, srcInfo.City, srcInfo.Org}
-			// dstNode := Node{destIP, dstInfo.Country, dstInfo.City, dstInfo.Org}
-			// s.graph.Add(srcNode, dstNode)
 		}
 	}
 }

@@ -91,6 +91,14 @@
 
   svg.attr("viewBox", [0, 0, width, height])
 
+  // zoomable container — all graph elements go inside this group
+  const container = svg.append("g")
+
+  svg.call(d3.zoom()
+    .scaleExtent([0.1, 8])
+    .on("zoom", event => container.attr("transform", event.transform))
+  )
+
   // one color per country, grey for local
   const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
   function nodeColor(d) {
@@ -122,6 +130,13 @@
     svg.selectAll("*").remove()
     d3.select("#legend").remove()
 
+    // re-add zoom container after clearing
+    const container = svg.append("g")
+    svg.call(d3.zoom()
+      .scaleExtent([0.1, 8])
+      .on("zoom", event => container.attr("transform", event.transform))
+    )
+
     const maxCount = d3.max(data.edges, e => e.count) || 1
 
     // arrows
@@ -148,13 +163,13 @@
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collision", d3.forceCollide(30))
 
-    const link = svg.append("g").selectAll("line")
+    const link = container.append("g").selectAll("line")
       .data(data.edges).enter().append("line")
       .attr("stroke", "#333")
       .attr("stroke-width", d => 1 + (d.count / maxCount) * 6)
       .attr("marker-end", "url(#arrow)")
 
-    const node = svg.append("g").selectAll("circle")
+    const node = container.append("g").selectAll("circle")
       .data(data.nodes).enter().append("circle")
       .attr("r", 8)
       .attr("fill", nodeColor)
@@ -210,7 +225,7 @@
       row.append("span").style("color", "#999").text(country)
     })
 
-    const label = svg.append("g").selectAll("text")
+    const label = container.append("g").selectAll("text")
       .data(data.nodes).enter().append("text")
       .text(d => d.ip)
       .attr("font-size", 10)
