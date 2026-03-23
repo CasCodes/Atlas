@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -22,10 +23,10 @@ func NewTracer(maxHops int, graph *Graph, lookup func(string) *GeoInfo) *Tracer 
 	}
 }
 
-func (t *Tracer) Trace(ip string) {
+func (t *Tracer) Trace(ctx context.Context, ip string) {
 	// runs traceroute on the given ip
 	// and adds discovered IPs to graph
-	cmd := exec.Command("traceroute", "-m", strconv.Itoa(t.maxHops), ip)
+	cmd := exec.CommandContext(ctx, "traceroute", "-m", strconv.Itoa(t.maxHops), ip)
 	// listen on stdout
 	out, err := cmd.StdoutPipe()
 	if err != nil {

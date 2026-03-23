@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -41,6 +42,10 @@ func NewScanner(device string, maxHops int) *Scanner {
 }
 
 func (s *Scanner) Scan(durationMS int, print bool) {
+	// create context object to pass on timeout to other threads
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(durationMS)*time.Millisecond)
+	defer cancel() // cancel on end of function
+
 	// loop to capture packages on en0
 	handle, err := pcap.OpenLive(s.device, 1600, true, pcap.BlockForever)
 	if err != nil {
@@ -49,12 +54,10 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
-	timeout := time.After(time.Duration(durationMS) * time.Millisecond)
-
-	// each iteration, check for timeout, else process packet
+	// each iteration, check for context timeout, else process packet
 	for {
 		select {
-		case <-timeout:
+		case <-ctx.Done():
 			return
 		case packet := <-packetSource.Packets():
 			ip := packet.Layer(layers.LayerTypeIPv4)
@@ -71,7 +74,7 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			dstInfo := s.lookup(destIP)
 
 			// start trace in new thread
-			go s.tracer.Trace(destIP)
+			go s.tracer.Trace(ctx, destIP)
 
 			if print {
 				printPacket(ip4, srcInfo, dstInfo)
