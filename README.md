@@ -1,5 +1,9 @@
 # GoScan
-A small package capturing app written in go. The captured packages are visualized as a graph, where nodes are IP adresses and edges are stronger the more packages were send between the nodes.
+A small package capturing utility written in go. The captured packages are visualized as a graph, where nodes are IP adresses and edges are stronger the more packages were send between the nodes.
+
+```
+Capture packages -> run traceroute on all discovered IPs -> plot the routes as a graph
+```
 
 ## Usage
 Run the api server with `sudo go run .`
@@ -30,9 +34,7 @@ curl "http://localhost:8080/graph"
 
 ## To do
 Todo:
-- Run traceroute whenever a new IP is registered, add the intermediate adresses to the graph
-
+- make the graph live, i.e. stream graph data continuosly (with start/stop scan)
 
 Backlog:
 - MCP server over graph
-- make the graph live, i.e. stream graph data (with start/stop scan)

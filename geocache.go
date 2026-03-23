@@ -1,5 +1,7 @@
 package main
 
+import "sync"
+
 type GeoInfo struct {
 	IP      string  `json:"query"`
 	Country string  `json:"country"`
@@ -11,6 +13,7 @@ type GeoInfo struct {
 }
 
 type GeoCache struct {
+	mu   sync.RWMutex
 	data map[string]*GeoInfo
 }
 
@@ -21,10 +24,16 @@ func NewGeoCache() *GeoCache {
 }
 
 func (g *GeoCache) Get(ip string) (*GeoInfo, bool) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
 	info, ok := g.data[ip]
 	return info, ok
 }
 
 func (g *GeoCache) Put(ip string, info *GeoInfo) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	g.data[ip] = info
 }

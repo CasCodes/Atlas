@@ -9,13 +9,13 @@ import (
 
 func main() {
 	// create scanner
-	scanner := NewScanner("en0")
+	scanner := NewScanner("en0", 10)
 	// create router
 	r := gin.Default()
 
 	// endpoints
 	r.GET("/graph", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, scanner.packageGraph.ToJSON())
+		ctx.JSON(http.StatusOK, scanner.graph.ToJSON())
 	})
 
 	r.POST("/scan", func(ctx *gin.Context) {

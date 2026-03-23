@@ -13,25 +13,31 @@ import (
 )
 
 type Scanner struct {
-	cache        *GeoCache
-	client       *http.Client
-	device       string
-	packageGraph *Graph
+	device string
+	cache  *GeoCache
+	client *http.Client
+	graph  *Graph
+	tracer *Tracer
 }
 
-func NewScanner(device string) *Scanner {
+func NewScanner(device string, maxHops int) *Scanner {
 	// intantiate cache and http client
 	cache := NewGeoCache()
 	client := &http.Client{Timeout: 3 * time.Second}
-	// package graph
-	packageGraph := NewGraph()
 
-	return &Scanner{
-		cache:        cache,
-		client:       client,
-		device:       device,
-		packageGraph: packageGraph,
+	// package graph
+	graph := NewGraph()
+
+	s := &Scanner{
+		device: device,
+		cache:  cache,
+		client: client,
+		graph:  graph,
 	}
+	// add tracer with lookup function injected
+	s.tracer = NewTracer(maxHops, graph, s.lookup)
+
+	return s
 }
 
 func (s *Scanner) Scan(durationMS int, print bool) {
@@ -64,6 +70,9 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			srcInfo := s.lookup(srcIP)
 			dstInfo := s.lookup(destIP)
 
+			// start trace in new thread
+			go s.tracer.Trace(destIP)
+
 			if print {
 				printPacket(ip4, srcInfo, dstInfo)
 			}
@@ -71,13 +80,13 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			// add new edge (and if needed nodes) to the graph
 			srcNode := Node{srcIP, srcInfo.Country, srcInfo.City, srcInfo.Org}
 			dstNode := Node{destIP, dstInfo.Country, dstInfo.City, dstInfo.Org}
-			s.packageGraph.Add(srcNode, dstNode)
+			s.graph.Add(srcNode, dstNode)
 		}
 	}
 }
 
 func (s *Scanner) lookup(ip string) *GeoInfo {
-	// private not cached
+	// private is not cached
 	if isPrivate(ip) {
 		return &GeoInfo{IP: ip, Country: "local", City: "local network", Org: "LAN"}
 	}
@@ -86,8 +95,9 @@ func (s *Scanner) lookup(ip string) *GeoInfo {
 	if info, ok := s.cache.Get(ip); ok {
 		return info // cache hit
 	}
-
-	info := fetchFromAPI(ip, s.client) // cache miss
+	// cache miss: fetch ip info
+	info := fetchFromAPI(ip, s.client)
+	// add to cache
 	s.cache.Put(ip, info)
 	return info
 }

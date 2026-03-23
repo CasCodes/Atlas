@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 type Node struct {
 	IP      string `json:"ip"`
@@ -21,6 +24,7 @@ type EdgeKey struct {
 }
 
 type Graph struct {
+	mu    sync.RWMutex
 	Nodes map[string]*Node  // keyed by IP
 	Edges map[EdgeKey]*Edge // keyed by EdgeKey
 }
@@ -39,6 +43,9 @@ func NewGraph() *Graph {
 }
 
 func (g *Graph) Add(from Node, to Node) {
+	g.mu.Lock()         // write lock
+	defer g.mu.Unlock() // unlock at end of function
+
 	// assignmend test on edge
 	edgeKey := EdgeKey{from.IP, to.IP}
 	edge, exists := g.Edges[edgeKey]
@@ -63,6 +70,9 @@ func (g *Graph) Print() {
 }
 
 func (g *Graph) ToJSON() GraphJSON {
+	g.mu.RLock()         // read lock
+	defer g.mu.RUnlock() // unlock at end of function
+
 	nodes := make([]Node, 0, len(g.Nodes))
 	edges := make([]Edge, 0, len(g.Edges))
 
