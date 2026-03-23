@@ -14,11 +14,12 @@ import (
 )
 
 type Scanner struct {
-	device string
-	cache  *GeoCache
-	client *http.Client
-	graph  *Graph
-	tracer *Tracer
+	device    string
+	cache     *GeoCache
+	client    *http.Client
+	graph     *Graph
+	tracer    *Tracer
+	tracedSet map[string]bool // to remember already traced IPs
 }
 
 func NewScanner(device string, maxHops int) *Scanner {
@@ -30,10 +31,11 @@ func NewScanner(device string, maxHops int) *Scanner {
 	graph := NewGraph()
 
 	s := &Scanner{
-		device: device,
-		cache:  cache,
-		client: client,
-		graph:  graph,
+		device:    device,
+		cache:     cache,
+		client:    client,
+		graph:     graph,
+		tracedSet: make(map[string]bool),
 	}
 	// add tracer with lookup function injected
 	s.tracer = NewTracer(maxHops, graph, s.lookup)
@@ -74,7 +76,10 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			dstInfo := s.lookup(destIP)
 
 			// start trace in new thread
-			go s.tracer.Trace(ctx, destIP)
+			if !s.tracedSet[destIP] {
+				s.tracedSet[destIP] = true
+				go s.tracer.Trace(ctx, destIP)
+			}
 
 			if print {
 				printPacket(ip4, srcInfo, dstInfo)

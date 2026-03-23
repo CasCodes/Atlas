@@ -10,16 +10,16 @@ import (
 )
 
 type Tracer struct {
-	maxHops int
-	graph   *Graph
-	lookup  func(string) *GeoInfo // inject lookup function from scanner
+	maxHops   int
+	graph     *Graph
+	geoLookup func(string) *GeoInfo // inject lookup function from scanner
 }
 
 func NewTracer(maxHops int, graph *Graph, lookup func(string) *GeoInfo) *Tracer {
 	return &Tracer{
-		maxHops: maxHops,
-		graph:   graph,
-		lookup:  lookup,
+		maxHops:   maxHops,
+		graph:     graph,
+		geoLookup: lookup,
 	}
 }
 
@@ -52,7 +52,7 @@ func (t *Tracer) Trace(ctx context.Context, ip string) {
 		}
 
 		// call lookup function (cache)
-		geoInfo := t.lookup(traceIP)
+		geoInfo := t.geoLookup(traceIP)
 		// construct node
 		curNode := Node{
 			IP:      geoInfo.IP,
