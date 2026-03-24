@@ -6,10 +6,12 @@ import (
 )
 
 type Node struct {
-	IP      string `json:"ip"`
-	Country string `json:"country"`
-	City    string `json:"city"`
-	Org     string `json:"org"`
+	IP      string  `json:"ip"`
+	Country string  `json:"country"`
+	City    string  `json:"city"`
+	Org     string  `json:"org"`
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
 }
 
 type Edge struct {

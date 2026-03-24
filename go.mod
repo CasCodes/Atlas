@@ -1,4 +1,4 @@
-module goscan
+module atlas
 
 go 1.25.6
 

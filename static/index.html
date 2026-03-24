@@ -5,15 +5,13 @@
   <title>netscope</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     body {
-      background: #0f0f0f;
+      background: #0a0a0a;
       color: #ccc;
       font-family: monospace;
       height: 100vh;
       overflow: hidden;
     }
-
     #controls {
       position: absolute;
       top: 24px;
@@ -23,7 +21,6 @@
       gap: 12px;
       z-index: 10;
     }
-
     input[type="number"] {
       background: #1a1a1a;
       border: 1px solid #333;
@@ -34,7 +31,6 @@
       width: 100px;
       border-radius: 4px;
     }
-
     button {
       background: #1a1a1a;
       border: 1px solid #444;
@@ -45,17 +41,10 @@
       border-radius: 4px;
       cursor: pointer;
     }
-
     button:hover { border-color: #888; color: #fff; }
     button:disabled { opacity: 0.4; cursor: default; }
-
-    #status {
-      font-size: 12px;
-      color: #555;
-    }
-
+    #status { font-size: 12px; color: #555; }
     #graph { width: 100vw; height: 100vh; }
-
     .tooltip {
       position: absolute;
       background: #1a1a1a;
@@ -69,6 +58,8 @@
       transition: opacity 0.15s;
       color: #ccc;
     }
+    .country { fill: #111; stroke: #2a2a2a; stroke-width: 0.5px; }
+    .graticule { fill: none; stroke: #1a1a1a; stroke-width: 0.3px; }
   </style>
 </head>
 <body>
@@ -91,19 +82,43 @@
 
   svg.attr("viewBox", [0, 0, width, height])
 
-  // zoomable container — all graph elements go inside this group
-  const container = svg.append("g")
-
-  svg.call(d3.zoom()
-    .scaleExtent([0.1, 8])
-    .on("zoom", event => container.attr("transform", event.transform))
-  )
-
-  // one color per country, grey for local
   const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
+
   function nodeColor(d) {
     if (d.country === "local") return "#444"
     return colorScale(d.country)
+  }
+
+  // geo projection — natural earth is nicely minimal
+  const projection = d3.geoNaturalEarth1()
+    .scale(width / 6.5)
+    .translate([width / 2, height / 2])
+
+  const geoPath = d3.geoPath().projection(projection)
+
+  // zoom + pan
+  const container = svg.append("g")
+  svg.call(d3.zoom()
+    .scaleExtent([0.5, 20])
+    .on("zoom", event => container.attr("transform", event.transform))
+  )
+
+  // draw map on load
+  async function drawMap() {
+    const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
+    const countries = topojson.feature(world, world.objects.countries)
+
+    container.append("g").selectAll("path")
+      .data(countries.features)
+      .enter().append("path")
+      .attr("class", "country")
+      .attr("d", geoPath)
+
+    // graticule grid lines
+    container.append("path")
+      .datum(d3.geoGraticule()())
+      .attr("class", "graticule")
+      .attr("d", geoPath)
   }
 
   async function startScan() {
@@ -127,20 +142,37 @@
   }
 
   function renderGraph(data) {
-    svg.selectAll("*").remove()
+    // remove previous graph elements but keep the map
+    container.selectAll(".graph-layer").remove()
     d3.select("#legend").remove()
 
-    // re-add zoom container after clearing
-    const container = svg.append("g")
-    svg.call(d3.zoom()
-      .scaleExtent([0.1, 8])
-      .on("zoom", event => container.attr("transform", event.transform))
-    )
+    // filter out nodes with no coordinates (local nodes)
+    const geoNodes = data.nodes.filter(d => d.lat !== 0 && d.lon !== 0)
+    const localNodes = data.nodes.filter(d => d.lat === 0 || d.lon === 0)
+    const allNodes = [...geoNodes, ...localNodes]
+
+    // position geo nodes on map, cluster local nodes in corner
+    allNodes.forEach((d, i) => {
+      if (d.lat && d.lon && (d.lat !== 0 || d.lon !== 0)) {
+        const [x, y] = projection([d.lon, d.lat])
+        d.x = x
+        d.y = y
+      } else {
+        // local nodes cluster bottom left
+        d.x = 80 + (i % 4) * 40
+        d.y = height - 80
+      }
+    })
+
+    // build node lookup for edges
+    const nodeById = Object.fromEntries(allNodes.map(d => [d.ip, d]))
 
     const maxCount = d3.max(data.edges, e => e.count) || 1
 
-    // arrows
-    svg.append("defs").append("marker")
+    const graphLayer = container.append("g").attr("class", "graph-layer")
+
+    // edges
+    graphLayer.append("defs").append("marker")
       .attr("id", "arrow")
       .attr("viewBox", "0 0 10 10")
       .attr("refX", 18).attr("refY", 5)
@@ -152,26 +184,24 @@
       .attr("stroke", "#555")
       .attr("stroke-width", 1.5)
 
-    // remap from/to to source/target which is what D3 expects
-    data.edges.forEach(e => { e.source = e.from; e.target = e.to })
-
-    const simulation = d3.forceSimulation(data.nodes)
-      .force("link", d3.forceLink(data.edges)
-        .id(d => d.ip)
-        .distance(120))
-      .force("charge", d3.forceManyBody().strength(-300))
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collision", d3.forceCollide(30))
-
-    const link = container.append("g").selectAll("line")
-      .data(data.edges).enter().append("line")
+    graphLayer.append("g").selectAll("line")
+      .data(data.edges)
+      .enter().append("line")
       .attr("stroke", "#333")
-      .attr("stroke-width", d => 1 + (d.count / maxCount) * 6)
+      .attr("stroke-width", d => 1 + (d.count / maxCount) * 4)
       .attr("marker-end", "url(#arrow)")
+      .attr("x1", d => nodeById[d.from]?.x ?? 0)
+      .attr("y1", d => nodeById[d.from]?.y ?? 0)
+      .attr("x2", d => nodeById[d.to]?.x ?? 0)
+      .attr("y2", d => nodeById[d.to]?.y ?? 0)
 
-    const node = container.append("g").selectAll("circle")
-      .data(data.nodes).enter().append("circle")
-      .attr("r", 8)
+    // nodes
+    graphLayer.append("g").selectAll("circle")
+      .data(allNodes)
+      .enter().append("circle")
+      .attr("r", 5)
+      .attr("cx", d => d.x)
+      .attr("cy", d => d.y)
       .attr("fill", nodeColor)
       .attr("stroke", d => d.country === "local" ? "#666" : "#fff")
       .attr("stroke-width", 0.5)
@@ -189,19 +219,21 @@
         tooltip.style.top  = (event.pageY - 10) + "px"
       })
       .on("mouseout", () => { tooltip.style.opacity = 0 })
-      .call(d3.drag()
-        .on("start", (event, d) => {
-          if (!event.active) simulation.alphaTarget(0.3).restart()
-          d.fx = d.x; d.fy = d.y
-        })
-        .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y })
-        .on("end", (event, d) => {
-          if (!event.active) simulation.alphaTarget(0)
-          d.fx = null; d.fy = null
-        }))
 
-    // build legend
-    const countries = [...new Set(data.nodes.map(d => d.country))]
+    // labels
+    graphLayer.append("g").selectAll("text")
+      .data(allNodes)
+      .enter().append("text")
+      .text(d => d.ip)
+      .attr("x", d => d.x + 7)
+      .attr("y", d => d.y + 4)
+      .attr("font-size", 9)
+      .attr("font-family", "monospace")
+      .attr("fill", "#555")
+      .style("pointer-events", "none")
+
+    // legend
+    const countries = [...new Set(allNodes.map(d => d.country))]
     const legend = d3.select("body").append("div")
       .attr("id", "legend")
       .style("position", "absolute")
@@ -221,30 +253,15 @@
         .style("width", "10px").style("height", "10px")
         .style("border-radius", "50%")
         .style("background", country === "local" ? "#444" : colorScale(country))
-        .style("border", "1px solid #666").style("flex-shrink", "0")
+        .style("border", "1px solid #666")
+        .style("flex-shrink", "0")
       row.append("span").style("color", "#999").text(country)
     })
-
-    const label = container.append("g").selectAll("text")
-      .data(data.nodes).enter().append("text")
-      .text(d => d.ip)
-      .attr("font-size", 10)
-      .attr("font-family", "monospace")
-      .attr("fill", "#666")
-      .attr("dx", 12)
-      .attr("dy", 4)
-      .style("pointer-events", "none")
-
-    simulation.on("tick", () => {
-      link
-        .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x).attr("y2", d => d.target.y)
-      node
-        .attr("cx", d => d.x).attr("cy", d => d.y)
-      label
-        .attr("x", d => d.x).attr("y", d => d.y)
-    })
   }
+
+  // load map immediately on page load
+  drawMap()
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 </body>
 </html>

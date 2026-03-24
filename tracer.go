@@ -59,6 +59,8 @@ func (t *Tracer) Trace(ctx context.Context, ip string) {
 			Country: geoInfo.Country,
 			City:    geoInfo.City,
 			Org:     geoInfo.Org,
+			Lat:     geoInfo.Lat,
+			Lon:     geoInfo.Lon,
 		}
 
 		// add nodes to graph as soon as we have a pair
