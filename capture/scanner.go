@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/gopacket"
@@ -17,12 +18,17 @@ import (
 )
 
 type Scanner struct {
-	device    string
-	cache     *geo.GeoCache
-	client    *http.Client
-	graph     *graph.Graph
-	tracer    *Tracer
+	device string
+
+	cache  *geo.GeoCache
+	client *http.Client
+	graph  *graph.Graph
+	tracer *Tracer
+
 	tracedSet map[string]bool // to remember already traced IPs
+
+	cancel context.CancelFunc
+	mu     sync.Mutex
 }
 
 func NewScanner(device string, maxHops int) *Scanner {
@@ -46,11 +52,55 @@ func NewScanner(device string, maxHops int) *Scanner {
 	return s
 }
 
-func (s *Scanner) Scan(durationMS int, print bool) {
-	// create context object to pass on timeout to other threads
+func (s *Scanner) ScanDuration(durationMS int, print bool) {
+	// run scan for fixed duration
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(durationMS)*time.Millisecond)
 	defer cancel() // cancel on end of function
 
+	s.mu.Lock()
+	s.cancel = cancel
+	s.mu.Unlock()
+
+	s.scan(ctx, false)
+}
+
+func (s *Scanner) Start(print bool) {
+	// start continuous scan without timeout
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.mu.Lock()
+	s.cancel = cancel
+	s.mu.Unlock()
+
+	s.scan(ctx, false) // ctx has empty timeout
+
+	s.mu.Lock()
+	s.cancel = nil
+	s.mu.Unlock()
+}
+
+func (s *Scanner) Stop() {
+	// stop running scan
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+func (s *Scanner) GetGraphJSON() graph.GraphJSON {
+	// getter for graph
+	return s.graph.ToJSON()
+}
+
+func (s *Scanner) IsScanning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.cancel != nil
+}
+
+func (s *Scanner) scan(ctx context.Context, print bool) {
 	// loop to capture packages on en0
 	handle, err := pcap.OpenLive(s.device, 1600, true, pcap.BlockForever)
 	if err != nil {
@@ -89,11 +139,6 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 			}
 		}
 	}
-}
-
-func (s *Scanner) GetGraphJSON() graph.GraphJSON {
-	// getter for graph
-	return s.graph.ToJSON()
 }
 
 func (s *Scanner) lookup(ip string) *geo.GeoInfo {

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>netscope</title>
+  <title>atlas</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -20,16 +20,6 @@
       align-items: center;
       gap: 12px;
       z-index: 10;
-    }
-    input[type="number"] {
-      background: #1a1a1a;
-      border: 1px solid #333;
-      color: #ccc;
-      padding: 6px 10px;
-      font-family: monospace;
-      font-size: 13px;
-      width: 100px;
-      border-radius: 4px;
     }
     button {
       background: #1a1a1a;
@@ -65,8 +55,8 @@
 <body>
 
 <div id="controls">
-  <input type="number" id="duration" value="5000" min="1000" step="1000" />
-  <button id="scanBtn" onclick="startScan()">scan</button>
+  <button id="startBtn" onclick="startScan()">start</button>
+  <button id="stopBtn" onclick="stopScan()" disabled>stop</button>
   <span id="status"></span>
 </div>
 
@@ -74,6 +64,7 @@
 <div class="tooltip" id="tooltip"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 <script>
   const svg = d3.select("#graph")
   const width = window.innerWidth
@@ -83,95 +74,104 @@
   svg.attr("viewBox", [0, 0, width, height])
 
   const colorScale = d3.scaleOrdinal(d3.schemeTableau10)
-
   function nodeColor(d) {
     if (d.country === "local") return "#444"
     return colorScale(d.country)
   }
 
-  // geo projection — natural earth is nicely minimal
   const projection = d3.geoNaturalEarth1()
     .scale(width / 6.5)
     .translate([width / 2, height / 2])
 
   const geoPath = d3.geoPath().projection(projection)
 
-  // zoom + pan
   const container = svg.append("g")
   svg.call(d3.zoom()
     .scaleExtent([0.5, 20])
     .on("zoom", event => container.attr("transform", event.transform))
   )
 
-  // draw map on load
   async function drawMap() {
     const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
     const countries = topojson.feature(world, world.objects.countries)
-
     container.append("g").selectAll("path")
       .data(countries.features)
       .enter().append("path")
       .attr("class", "country")
       .attr("d", geoPath)
-
-    // graticule grid lines
     container.append("path")
       .datum(d3.geoGraticule()())
       .attr("class", "graticule")
       .attr("d", geoPath)
   }
 
+  // SSE connection
+  let eventSource = null
+
   async function startScan() {
-    const btn = document.getElementById("scanBtn")
-    const status = document.getElementById("status")
-    const duration = document.getElementById("duration").value
+    const res = await fetch("/start", { method: "POST" })
+    if (!res.ok) {
+      document.getElementById("status").textContent = "already scanning"
+      return
+    }
 
-    btn.disabled = true
-    status.textContent = `scanning for ${duration / 1000}s...`
+    document.getElementById("startBtn").disabled = true
+    document.getElementById("stopBtn").disabled = false
+    document.getElementById("status").textContent = "scanning..."
 
-    await fetch(`/scan?duration=${duration}`, { method: "POST" })
+    // open SSE stream
+    eventSource = new EventSource("/stream")
 
-    status.textContent = "fetching graph..."
-    const res = await fetch("/graph")
-    const data = await res.json()
+    eventSource.onmessage = event => {
+      const data = JSON.parse(event.data)
+      document.getElementById("status").textContent = `${data.nodes.length} nodes, ${data.edges.length} edges`
+      renderGraph(data)
+    }
 
-    status.textContent = `${data.nodes.length} nodes, ${data.edges.length} edges`
-    btn.disabled = false
+    eventSource.onerror = () => {
+      document.getElementById("status").textContent = "stream error"
+      cleanup()
+    }
+  }
 
-    renderGraph(data)
+  async function stopScan() {
+    await fetch("/stop", { method: "POST" })
+    cleanup()
+  }
+
+  function cleanup() {
+    if (eventSource) {
+      eventSource.close()
+      eventSource = null
+    }
+    document.getElementById("startBtn").disabled = false
+    document.getElementById("stopBtn").disabled = true
+    document.getElementById("status").textContent = "stopped"
   }
 
   function renderGraph(data) {
-    // remove previous graph elements but keep the map
     container.selectAll(".graph-layer").remove()
     d3.select("#legend").remove()
 
-    // filter out nodes with no coordinates (local nodes)
     const geoNodes = data.nodes.filter(d => d.lat !== 0 && d.lon !== 0)
     const localNodes = data.nodes.filter(d => d.lat === 0 || d.lon === 0)
     const allNodes = [...geoNodes, ...localNodes]
 
-    // position geo nodes on map, cluster local nodes in corner
     allNodes.forEach((d, i) => {
       if (d.lat && d.lon && (d.lat !== 0 || d.lon !== 0)) {
         const [x, y] = projection([d.lon, d.lat])
         d.x = x
         d.y = y
       } else {
-        // local nodes cluster bottom left
         d.x = 80 + (i % 4) * 40
         d.y = height - 80
       }
     })
 
-    // build node lookup for edges
     const nodeById = Object.fromEntries(allNodes.map(d => [d.ip, d]))
-
     const maxCount = d3.max(data.edges, e => e.count) || 1
-
     const graphLayer = container.append("g").attr("class", "graph-layer")
 
-    // edges
     graphLayer.append("defs").append("marker")
       .attr("id", "arrow")
       .attr("viewBox", "0 0 10 10")
@@ -195,7 +195,6 @@
       .attr("x2", d => nodeById[d.to]?.x ?? 0)
       .attr("y2", d => nodeById[d.to]?.y ?? 0)
 
-    // nodes
     graphLayer.append("g").selectAll("circle")
       .data(allNodes)
       .enter().append("circle")
@@ -220,7 +219,6 @@
       })
       .on("mouseout", () => { tooltip.style.opacity = 0 })
 
-    // labels
     graphLayer.append("g").selectAll("text")
       .data(allNodes)
       .enter().append("text")
@@ -232,7 +230,6 @@
       .attr("fill", "#555")
       .style("pointer-events", "none")
 
-    // legend
     const countries = [...new Set(allNodes.map(d => d.country))]
     const legend = d3.select("body").append("div")
       .attr("id", "legend")
@@ -259,9 +256,7 @@
     })
   }
 
-  // load map immediately on page load
   drawMap()
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 </body>
 </html>
