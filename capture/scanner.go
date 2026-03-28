@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"context"
@@ -11,24 +11,27 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+
+	"atlas/geo"
+	"atlas/graph"
 )
 
 type Scanner struct {
 	device    string
-	cache     *GeoCache
+	cache     *geo.GeoCache
 	client    *http.Client
-	graph     *Graph
+	graph     *graph.Graph
 	tracer    *Tracer
 	tracedSet map[string]bool // to remember already traced IPs
 }
 
 func NewScanner(device string, maxHops int) *Scanner {
 	// intantiate cache and http client
-	cache := NewGeoCache()
+	cache := geo.NewGeoCache()
 	client := &http.Client{Timeout: 3 * time.Second}
 
 	// package graph
-	graph := NewGraph()
+	graph := graph.NewGraph()
 
 	s := &Scanner{
 		device:    device,
@@ -88,10 +91,15 @@ func (s *Scanner) Scan(durationMS int, print bool) {
 	}
 }
 
-func (s *Scanner) lookup(ip string) *GeoInfo {
+func (s *Scanner) GetGraphJSON() graph.GraphJSON {
+	// getter for graph
+	return s.graph.ToJSON()
+}
+
+func (s *Scanner) lookup(ip string) *geo.GeoInfo {
 	// private is not cached
 	if isPrivate(ip) {
-		return &GeoInfo{IP: ip, Country: "local", City: "local network", Org: "LAN"}
+		return &geo.GeoInfo{IP: ip, Country: "local", City: "local network", Org: "LAN"}
 	}
 
 	// check if ip exists in cache, else fetch from api
@@ -127,22 +135,22 @@ func isPrivate(ipStr string) bool {
 	return false
 }
 
-func fetchFromAPI(ip string, client *http.Client) *GeoInfo {
+func fetchFromAPI(ip string, client *http.Client) *geo.GeoInfo {
 	url := "http://ip-api.com/json/" + ip + "?fields=query,country,city,org,lat,lon"
 	resp, err := client.Get(url)
 	if err != nil {
-		return &GeoInfo{IP: ip, Country: "unknown", City: "lookup failed"}
+		return &geo.GeoInfo{IP: ip, Country: "unknown", City: "lookup failed"}
 	}
 	defer resp.Body.Close()
 
-	var info GeoInfo
+	var info geo.GeoInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return &GeoInfo{IP: ip, Country: "unknown", City: "parse failed"}
+		return &geo.GeoInfo{IP: ip, Country: "unknown", City: "parse failed"}
 	}
 	return &info
 }
 
-func printPacket(ip4 *layers.IPv4, src *GeoInfo, dst *GeoInfo) {
+func printPacket(ip4 *layers.IPv4, src *geo.GeoInfo, dst *geo.GeoInfo) {
 	fmt.Printf("%-16s (%s, %s) -> %-16s (%s, %s)\n",
 		ip4.SrcIP, src.City, src.Country,
 		ip4.DstIP, dst.City, dst.Country,

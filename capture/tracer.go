@@ -1,4 +1,4 @@
-package main
+package capture
 
 import (
 	"bufio"
@@ -7,17 +7,20 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+
+	"atlas/geo"
+	"atlas/graph"
 )
 
 type Tracer struct {
-	maxHops   int
-	graph     *Graph
-	geoLookup func(string) *GeoInfo // inject lookup function from scanner
+	MaxHops   int
+	graph     *graph.Graph
+	geoLookup func(string) *geo.GeoInfo // inject lookup function from scanner
 }
 
-func NewTracer(maxHops int, graph *Graph, lookup func(string) *GeoInfo) *Tracer {
+func NewTracer(maxHops int, graph *graph.Graph, lookup func(string) *geo.GeoInfo) *Tracer {
 	return &Tracer{
-		maxHops:   maxHops,
+		MaxHops:   maxHops,
 		graph:     graph,
 		geoLookup: lookup,
 	}
@@ -26,7 +29,8 @@ func NewTracer(maxHops int, graph *Graph, lookup func(string) *GeoInfo) *Tracer 
 func (t *Tracer) Trace(ctx context.Context, ip string) {
 	// runs traceroute on the given ip
 	// and adds discovered IPs to graph
-	cmd := exec.CommandContext(ctx, "traceroute", "-m", strconv.Itoa(t.maxHops), ip)
+	fmt.Printf("	START trace on %s\n", ip)
+	cmd := exec.CommandContext(ctx, "traceroute", "-m", strconv.Itoa(t.MaxHops), ip)
 	// listen on stdout
 	out, err := cmd.StdoutPipe()
 	if err != nil {
@@ -41,7 +45,7 @@ func (t *Tracer) Trace(ctx context.Context, ip string) {
 	scanner := bufio.NewScanner(out)
 
 	// store previous node
-	var prevNode *Node = nil
+	var prevNode *graph.Node = nil
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -54,7 +58,7 @@ func (t *Tracer) Trace(ctx context.Context, ip string) {
 		// call lookup function (cache)
 		geoInfo := t.geoLookup(traceIP)
 		// construct node
-		curNode := Node{
+		curNode := graph.Node{
 			IP:      geoInfo.IP,
 			Country: geoInfo.Country,
 			City:    geoInfo.City,
@@ -76,7 +80,7 @@ func (t *Tracer) Trace(ctx context.Context, ip string) {
 		// set curNode as prevNode
 		prevNode = &curNode
 	}
-
+	fmt.Printf("	END trace on %s\n", ip)
 }
 
 var ipRegex = regexp.MustCompile(`\((\d+\.\d+\.\d+\.\d+)\)`)
